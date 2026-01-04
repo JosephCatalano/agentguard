@@ -1,3 +1,4 @@
+import cors from "@fastify/cors";
 import Fastify from "fastify";
 import crypto from "node:crypto";
 import pg from "pg";
@@ -33,6 +34,11 @@ const DENY_EMAIL_DOMAINS = (process.env.DENY_EMAIL_DOMAINS ?? "")
  * =========================
  */
 const app = Fastify({ logger: true });
+
+await app.register(cors, {
+  origin: ["http://localhost:3000"],
+  methods: ["GET", "POST"],
+});
 
 const pool = new Pool({ connectionString: DATABASE_URL });
 
