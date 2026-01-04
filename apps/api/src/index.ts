@@ -5,7 +5,8 @@ import pg from "pg";
 const { Pool } = pg;
 
 const DATABASE_URL =
-  process.env.DATABASE_URL ?? "postgres://agentguard@localhost:5432/agentguard";
+  process.env.DATABASE_URL ??
+  "postgres://agentguard:agentguard@localhost:5433/agentguard";
 
 const poolConfig = {
   connectionString: DATABASE_URL,
@@ -59,6 +60,7 @@ function sha256Hex(s: string): string {
 
 app.post<{ Body: AppendBody }>("/audit/append", async (req) => {
   const body = req.body;
+  const tsIso = new Date().toISOString();
 
   // Get previous hash (latest event)
   const prev = await pool.query<{ hash: string }>(
@@ -67,7 +69,7 @@ app.post<{ Body: AppendBody }>("/audit/append", async (req) => {
   const prev_hash = prev.rows[0]?.hash ?? null;
 
   const eventForHash = {
-    ts: new Date().toISOString(),
+    ts: tsIso,
     actor_type: body.actor_type,
     actor_id: body.actor_id,
     action_type: body.action_type,
@@ -82,10 +84,11 @@ app.post<{ Body: AppendBody }>("/audit/append", async (req) => {
 
   const inserted = await pool.query(
     `INSERT INTO audit_events
-      (actor_type, actor_id, action_type, tool, resource, payload_redacted, decision, prev_hash, hash)
-     VALUES ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,$8,$9)
-     RETURNING id, ts, prev_hash, hash`,
+    (ts, actor_type, actor_id, action_type, tool, resource, payload_redacted, decision, prev_hash, hash)
+   VALUES ($1::timestamptz,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8,$9,$10)
+   RETURNING id, ts, prev_hash, hash`,
     [
+      tsIso,
       body.actor_type,
       body.actor_id,
       body.action_type,
@@ -97,14 +100,15 @@ app.post<{ Body: AppendBody }>("/audit/append", async (req) => {
       hash,
     ]
   );
-
   return inserted.rows[0];
 });
 
-app.get("/audit/:id", async (req) => {
+app.get("/audit/:id", async (req, reply) => {
   const { id } = req.params as { id: string };
   const r = await pool.query("SELECT * FROM audit_events WHERE id = $1", [id]);
-  if (r.rowCount === 0) return app.httpErrors.notFound();
+  if (r.rowCount === 0) {
+    return reply.code(404).send({ error: "not_found" });
+  }
   return r.rows[0];
 });
 
